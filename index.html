@@ -273,6 +273,15 @@ tr:hover td{background:rgba(255,255,255,0.02);}
           <button class="btn" id="btnExitAuditScan">Exit to Stock Audit</button>
         </div>
       </div>
+      <div class="report-section" id="movementScanBanner" style="display:none;margin-bottom:18px;border-color:var(--gold);">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+          <div>
+            <strong style="color:var(--gold);">🚚 Scanning for Stock Movement</strong>
+            <div style="color:var(--text-dim);font-size:12px;margin-top:2px;">Scan or upload a photo of the item's tag to select it for a transfer.</div>
+          </div>
+          <button class="btn" id="btnExitMovementScan">Exit to Stock Movement</button>
+        </div>
+      </div>
       <div class="scan-grid">
         <div class="scan-panel">
           <div class="camera-frame" id="cameraFrame">
@@ -310,11 +319,21 @@ tr:hover td{background:rgba(255,255,255,0.02);}
           <p class="page-sub">Select items, print a sheet of QR tags.</p>
         </div>
         <div style="display:flex;gap:10px;">
-          <button class="btn" id="btnSelectAllLabels">Select all</button>
+          <button class="btn" id="btnSelectAllLabels">Select all (filtered)</button>
           <button class="btn btn-primary" id="btnPrintLabels">🖨️ Print sheet</button>
         </div>
       </div>
-      <div class="label-select-list" id="labelSelectList"></div>
+      <div class="toolbar">
+        <input class="search-box" id="labelSearch" placeholder="Search by name, ID or custodian…">
+        <select class="filter" id="labelLocationFilter"><option value="">All locations</option></select>
+        <select class="filter" id="labelCategoryFilter"><option value="">All categories</option></select>
+      </div>
+      <div class="table-wrap" style="margin-bottom:20px;">
+        <table>
+          <thead><tr><th style="width:36px;"></th><th>Item</th><th>ID</th><th>Category</th><th>Location</th></tr></thead>
+          <tbody id="labelSelectList"></tbody>
+        </table>
+      </div>
       <div id="labelSheet"></div>
     </div>
 
@@ -380,7 +399,7 @@ tr:hover td{background:rgba(255,255,255,0.02);}
           <h3 style="margin-top:0;font-size:14px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.04em;">Categories</h3>
           <div style="display:flex;gap:8px;margin-bottom:14px;">
             <input class="search-box" id="newCategoryInput" placeholder="New category name…" style="margin:0;">
-            <button class="btn btn-primary" onclick="addCategory()">+ Add</button>
+            <button class="btn btn-primary" id="btnAddCategory">+ Add</button>
           </div>
           <div class="label-select-list" id="categoryListBox" style="max-height:420px;"></div>
         </div>
@@ -388,7 +407,7 @@ tr:hover td{background:rgba(255,255,255,0.02);}
           <h3 style="margin-top:0;font-size:14px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.04em;">Locations / Rooms</h3>
           <div style="display:flex;gap:8px;margin-bottom:14px;">
             <input class="search-box" id="newLocationInput" placeholder="New location, e.g. Store Room B…" style="margin:0;">
-            <button class="btn btn-primary" onclick="addLocation()">+ Add</button>
+            <button class="btn btn-primary" id="btnAddLocation">+ Add</button>
           </div>
           <div class="label-select-list" id="locationListBox" style="max-height:420px;"></div>
         </div>
@@ -407,7 +426,10 @@ tr:hover td{background:rgba(255,255,255,0.02);}
         <div class="scan-panel">
           <div class="form-grid">
             <div class="form-field full"><label>Item *</label>
-              <select id="mvItem"><option value="">Select an item…</option></select>
+              <div style="display:flex;gap:8px;">
+                <select id="mvItem" style="flex:1;"><option value="">Select an item…</option></select>
+                <button class="btn" id="btnScanForMovement" style="flex-shrink:0;">🔎 Scan</button>
+              </div>
             </div>
             <div class="form-field"><label>From location</label><input id="mvFrom" disabled placeholder="—"></div>
             <div class="form-field"><label>To location *</label><select id="mvTo"><option value="">Select destination…</option></select></div>
@@ -502,6 +524,8 @@ tr:hover td{background:rgba(255,255,255,0.02);}
       </div>
       <div class="form-field"><label>Minimum stock *</label><input id="fMin" type="number" min="0" value="1" required></div>
       <div class="form-field"><label>Unit cost (₹) *</label><input id="fCost" type="number" min="0" step="0.01" value="0" required></div>
+      <div class="form-field"><label>Custodian</label><input id="fCustodian" placeholder="Person/dept responsible"></div>
+      <div class="form-field full"><label>Description</label><textarea id="fDescription" rows="2" placeholder="What this item is, condition, distinguishing details…"></textarea></div>
       <div class="form-field full"><label>Notes</label><textarea id="fNotes" rows="2"></textarea></div>
     </div>
     <p style="color:var(--text-dim);font-size:11.5px;margin:2px 0 0 0;">* All fields required — keeping every item location-tagged makes room-by-room audits accurate.</p>
@@ -677,8 +701,8 @@ document.querySelectorAll('.nav-item').forEach(btn=>{
     if(btn.dataset.view==='stockaudit') renderStockAudit();
     if(btn.dataset.view==='lists') renderLists();
     if(btn.dataset.view==='movement') renderMovement();
-    if(btn.dataset.view==='scan') updateAuditScanBanner();
-    if(btn.dataset.view!=='scan'){ stopCamera(); auditScanMode=false; }
+    if(btn.dataset.view==='scan') { updateAuditScanBanner(); updateMovementScanBanner(); }
+    if(btn.dataset.view!=='scan'){ stopCamera(); auditScanMode=false; movementScanMode=false; }
   });
 });
 
@@ -707,46 +731,58 @@ function renderLists(){
   catBox.innerHTML = allCategoryNames().map(c=>`
     <div class="select-row" style="justify-content:space-between;">
       <span><strong>${c}</strong> <span style="color:var(--text-dim);font-size:11.5px;">${catCounts[c]?catCounts[c]+' item(s)':'unused'}</span></span>
-      <button class="icon-btn btn-danger" title="Remove" onclick="removeCategory('${c.replace(/'/g,"\\'")}')">🗑</button>
+      <button class="icon-btn btn-danger btn-remove-cat" data-cat="${c}" title="Remove">🗑</button>
     </div>`).join('') || '<div style="color:var(--text-dim);padding:6px;">No categories yet.</div>';
   locBox.innerHTML = allLocationNames().map(l=>`
     <div class="select-row" style="justify-content:space-between;">
       <span><strong>${l}</strong> <span style="color:var(--text-dim);font-size:11.5px;">${locCounts[l]?locCounts[l]+' item(s)':'unused'}</span></span>
-      <button class="icon-btn btn-danger" title="Remove" onclick="removeLocation('${l.replace(/'/g,"\\'")}')">🗑</button>
+      <button class="icon-btn btn-danger btn-remove-loc" data-loc="${l}" title="Remove">🗑</button>
     </div>`).join('') || '<div style="color:var(--text-dim);padding:6px;">No locations yet.</div>';
 }
-window.addCategory = async ()=>{
+async function addCategory(){
   const input = document.getElementById('newCategoryInput');
   const name = (input.value||'').trim();
   if(!name) return;
   if(!CATEGORIES.some(c=>c.toLowerCase()===name.toLowerCase())){ CATEGORIES.push(name); await saveCategories(CATEGORIES); }
   input.value='';
   renderLists();
-};
-window.removeCategory = async (name)=>{
+}
+async function removeCategory(name){
   const inUse = ITEMS.some(i=>i.category===name);
   if(inUse){ alert(`"${name}" is still used by one or more items — reassign those items to another category before removing it from the list.`); return; }
   if(!confirm(`Remove category "${name}" from the list?`)) return;
   CATEGORIES = CATEGORIES.filter(c=>c!==name);
   await saveCategories(CATEGORIES);
   renderLists();
-};
-window.addLocation = async ()=>{
+}
+async function addLocation(){
   const input = document.getElementById('newLocationInput');
   const name = (input.value||'').trim();
   if(!name) return;
   if(!LOCATIONS.some(l=>l.toLowerCase()===name.toLowerCase())){ LOCATIONS.push(name); await saveLocations(LOCATIONS); }
   input.value='';
   renderLists();
-};
-window.removeLocation = async (name)=>{
+}
+async function removeLocation(name){
   const inUse = ITEMS.some(i=>i.location===name);
   if(inUse){ alert(`"${name}" is still used by one or more items — move those items to another location before removing it from the list.`); return; }
   if(!confirm(`Remove location "${name}" from the list?`)) return;
   LOCATIONS = LOCATIONS.filter(l=>l!==name);
   await saveLocations(LOCATIONS);
   renderLists();
-};
+}
+document.getElementById('btnAddCategory').addEventListener('click', addCategory);
+document.getElementById('btnAddLocation').addEventListener('click', addLocation);
+document.getElementById('newCategoryInput').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); addCategory(); } });
+document.getElementById('newLocationInput').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); addLocation(); } });
+document.getElementById('categoryListBox').addEventListener('click', e=>{
+  const btn = e.target.closest('.btn-remove-cat');
+  if(btn) removeCategory(btn.dataset.cat);
+});
+document.getElementById('locationListBox').addEventListener('click', e=>{
+  const btn = e.target.closest('.btn-remove-loc');
+  if(btn) removeLocation(btn.dataset.loc);
+});
 
 /* ================= RENDER: DASHBOARD ================= */
 function populateCategoryFilter(){
@@ -780,7 +816,7 @@ function renderTable(){
   const loc = document.getElementById('locationFilter')?.value||'';
   const st = document.getElementById('statusFilter').value;
   let rows = ITEMS.filter(i=>{
-    const matchesQ = !q || i.name.toLowerCase().includes(q) || (i.sku||'').toLowerCase().includes(q) || (i.location||'').toLowerCase().includes(q) || i.id.toLowerCase().includes(q);
+    const matchesQ = !q || i.name.toLowerCase().includes(q) || (i.sku||'').toLowerCase().includes(q) || (i.location||'').toLowerCase().includes(q) || i.id.toLowerCase().includes(q) || (i.custodian||'').toLowerCase().includes(q);
     const matchesC = !cat || i.category===cat;
     const matchesL = !loc || i.location===loc;
     const matchesS = !st || status(i)===st;
@@ -792,7 +828,7 @@ function renderTable(){
   body.innerHTML = rows.map(i=>{
     const s = status(i);
     return `<tr>
-      <td><strong>${i.name}</strong><div style="color:var(--text-dim);font-size:11.5px;">${i.sku?('SKU '+i.sku):''}</div></td>
+      <td><strong>${i.name}</strong><div style="color:var(--text-dim);font-size:11.5px;">${i.sku?('SKU '+i.sku):''}${i.custodian?(' · Custodian: '+i.custodian):''}</div></td>
       <td><span class="id-chip">${i.id}</span></td>
       <td>${i.category}</td>
       <td>${i.location||'—'}</td>
@@ -835,6 +871,8 @@ function openModal(item){
   document.getElementById('fMin').value = item?.minStock??1;
   document.getElementById('fCost').value = item?.unitCost??0;
   if(item?.location) document.getElementById('fLocation').value = item.location;
+  document.getElementById('fCustodian').value = item?.custodian||'';
+  document.getElementById('fDescription').value = item?.description||'';
   document.getElementById('fNotes').value = item?.notes||'';
   modal.classList.add('active');
 }
@@ -855,6 +893,8 @@ document.getElementById('btnSaveItem').addEventListener('click', async ()=>{
   const qtyRaw = document.getElementById('fQty').value;
   const minRaw = document.getElementById('fMin').value;
   const costRaw = document.getElementById('fCost').value;
+  const custodian = document.getElementById('fCustodian').value.trim();
+  const description = document.getElementById('fDescription').value.trim();
   if(!name){ alert('Please enter an item name.'); return; }
   if(!category){ alert('Please select a category. Add new ones from the Lists Register if needed.'); return; }
   if(!location){ alert('Please select a location. Add new ones from the Lists Register if needed.'); return; }
@@ -872,10 +912,14 @@ document.getElementById('btnSaveItem').addEventListener('click', async ()=>{
       minStock:Number(minRaw)||0,
       unitCost:Number(costRaw)||0,
       location,
+      custodian, description,
       notes:document.getElementById('fNotes').value.trim(),
       lastUpdated:Date.now()
     });
     await addLog(item.id,item.name,'Edited',qty-prevQty,'Details updated');
+    await saveItems(ITEMS);
+    modal.classList.remove('active');
+    refreshDashboard();
   } else {
     const item = {
       id: document.getElementById('fAssetId').value || genId(), name, category,
@@ -884,16 +928,36 @@ document.getElementById('btnSaveItem').addEventListener('click', async ()=>{
       minStock:Number(minRaw)||0,
       unitCost:Number(costRaw)||0,
       location,
+      custodian, description,
       notes:document.getElementById('fNotes').value.trim(),
       lastUpdated:Date.now()
     };
     ITEMS.push(item);
     await addLog(item.id,item.name,'Added',qty,'New item created');
+    await saveItems(ITEMS);
+    modal.classList.remove('active');
+    refreshDashboard();
+    await maybeOfferAuditInclusion(item);
   }
-  await saveItems(ITEMS);
-  modal.classList.remove('active');
-  refreshDashboard();
 });
+
+/* Offer to fold a newly-added item into the currently in-progress audit, if any */
+async function maybeOfferAuditInclusion(item){
+  if(!CURRENT_AUDIT) return;
+  const inScope = CURRENT_AUDIT.location==='All locations' || CURRENT_AUDIT.location===item.location;
+  if(!inScope) return;
+  const alreadyIn = CURRENT_AUDIT.items.some(x=>x.itemId===item.id);
+  if(alreadyIn) return;
+  const include = confirm(`A stock audit "${CURRENT_AUDIT.name}" is currently in progress. Include the new item "${item.name}" in this audit's checklist?`);
+  if(!include) return;
+  CURRENT_AUDIT.items.push({
+    itemId:item.id, itemName:item.name, category:item.category, location:item.location,
+    expectedQty:Number(item.quantity), countedQty:null, state:'pending', note:'Added during audit', checkedAt:null
+  });
+  await saveAudits(AUDITS);
+  if(document.getElementById('view-stockaudit')?.classList.contains('active')) renderStockAudit();
+  updateAuditScanBanner();
+}
 
 /* ================= QR HELPERS ================= */
 function makeQr(container, text, size){
@@ -926,17 +990,41 @@ function makeQr(container, text, size){
 }
 
 /* ================= LABELS / PRINT ================= */
+function populateLabelFilters(){
+  fillSelectOptions(document.getElementById('labelLocationFilter'), allLocationNames(), {placeholder:'All locations'});
+  fillSelectOptions(document.getElementById('labelCategoryFilter'), allCategoryNames(), {placeholder:'All categories'});
+}
+function filteredLabelItems(){
+  const q = (document.getElementById('labelSearch')?.value||'').toLowerCase();
+  const loc = document.getElementById('labelLocationFilter')?.value||'';
+  const cat = document.getElementById('labelCategoryFilter')?.value||'';
+  return ITEMS.filter(i=>{
+    const matchesQ = !q || i.name.toLowerCase().includes(q) || i.id.toLowerCase().includes(q) || (i.custodian||'').toLowerCase().includes(q);
+    const matchesL = !loc || i.location===loc;
+    const matchesC = !cat || i.category===cat;
+    return matchesQ && matchesL && matchesC;
+  });
+}
 function renderLabelSelectList(){
+  populateLabelFilters();
   const box = document.getElementById('labelSelectList');
-  if(ITEMS.length===0){ box.innerHTML = '<div style="color:var(--text-dim);padding:6px;">No items to print yet — add some in Inventory.</div>'; document.getElementById('labelSheet').innerHTML=''; return; }
-  box.innerHTML = ITEMS.map(i=>`
-    <div class="select-row">
-      <input type="checkbox" class="label-check" value="${i.id}" checked>
-      <span><strong>${i.name}</strong> <span class="id-chip">${i.id}</span></span>
-    </div>`).join('');
+  const rows = filteredLabelItems();
+  if(ITEMS.length===0){ box.innerHTML = '<tr><td colspan="5" style="color:var(--text-dim);">No items to print yet — add some in Inventory.</td></tr>'; document.getElementById('labelSheet').innerHTML=''; return; }
+  box.innerHTML = rows.length ? rows.map(i=>`
+    <tr>
+      <td><input type="checkbox" class="label-check" value="${i.id}" checked></td>
+      <td><strong>${i.name}</strong></td>
+      <td><span class="id-chip">${i.id}</span></td>
+      <td>${i.category}</td>
+      <td>${i.location||'—'}</td>
+    </tr>`).join('') : '<tr><td colspan="5" style="color:var(--text-dim);">No items match these filters.</td></tr>';
   box.querySelectorAll('.label-check').forEach(cb=>cb.addEventListener('change',renderLabelSheet));
   renderLabelSheet();
 }
+['labelSearch','labelLocationFilter','labelCategoryFilter'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', renderLabelSelectList);
+  document.getElementById(id).addEventListener('change', renderLabelSelectList);
+});
 document.getElementById('btnSelectAllLabels').addEventListener('click',()=>{
   const boxes = document.querySelectorAll('.label-check');
   const allChecked = [...boxes].every(b=>b.checked);
@@ -1061,6 +1149,7 @@ document.getElementById('manualIdInput').addEventListener('keydown', (e)=>{
 let currentScannedId=null;
 function handleScan(text){
   if(auditScanMode && CURRENT_AUDIT){ handleAuditScanResult(text); return; }
+  if(movementScanMode){ handleMovementScanResult(text); return; }
   stopCamera();
   currentScannedId = text.trim();
   const item = ITEMS.find(i=>i.id===currentScannedId);
@@ -1181,6 +1270,45 @@ async function markAuditItem(itemId, state, countedQty, note){
   if(document.getElementById('view-stockaudit')?.classList.contains('active')) renderStockAudit();
 }
 
+/* ================= MOVEMENT SCAN (within Scan view) ================= */
+let movementScanMode = false;
+function updateMovementScanBanner(){
+  const banner = document.getElementById('movementScanBanner');
+  if(!banner) return;
+  banner.style.display = movementScanMode ? 'block' : 'none';
+}
+document.getElementById('btnScanForMovement').addEventListener('click', ()=>{
+  movementScanMode = true;
+  auditScanMode = false;
+  document.querySelector('.nav-item[data-view="scan"]').click();
+});
+document.getElementById('btnExitMovementScan').addEventListener('click', ()=>{
+  movementScanMode = false;
+  stopCamera();
+  document.querySelector('.nav-item[data-view="movement"]').click();
+});
+function handleMovementScanResult(text){
+  const id = text.trim();
+  stopCamera();
+  const item = ITEMS.find(i=>i.id===id);
+  const box = document.getElementById('scanResult');
+  if(!item){
+    box.innerHTML = `<div class="tag" style="border-color:var(--red);"><strong>Unrecognised tag</strong><div style="color:var(--text-dim);font-size:12.5px;margin-top:4px;">Code "${id}" doesn't match any item in inventory.</div></div>`;
+    setTimeout(()=>{ if(movementScanMode) startCamera(); }, 1400);
+    return;
+  }
+  box.innerHTML = `<div class="tag result-tag"><div style="font-weight:600;font-size:15px;">${item.name}</div>
+    <div class="id-chip">${item.id}</div>
+    <div style="color:var(--text-dim);font-size:12.5px;margin-top:4px;">${item.category} · ${item.location||'no location set'} · ${item.quantity} ${item.unit} available</div>
+    <p style="color:var(--teal);font-size:12.5px;margin:10px 0 0 0;">✓ Selected for Stock Movement — taking you there now.</p></div>`;
+  movementScanMode = false;
+  setTimeout(()=>{
+    document.querySelector('.nav-item[data-view="movement"]').click();
+    document.getElementById('mvItem').value = item.id;
+    updateMovementItemDetails();
+  }, 600);
+}
+
 function renderLog(){
   const list = document.getElementById('logList');
   if(LOG.length===0){ list.innerHTML = '<div style="color:var(--text-dim);">No activity yet.</div>'; return; }
@@ -1247,8 +1375,8 @@ document.getElementById('btnPrintReport').addEventListener('click',()=>{
 });
 
 document.getElementById('btnExportCsv').addEventListener('click',()=>{
-  const headers = ['ID','Name','Category','SKU','Quantity','Unit','Min Stock','Unit Cost','Location','Status','Last Updated'];
-  const rows = ITEMS.map(i=>[i.id,i.name,i.category,i.sku,i.quantity,i.unit,i.minStock,i.unitCost,i.location,statusLabel(status(i)),new Date(i.lastUpdated).toLocaleString()]);
+  const headers = ['ID','Name','Category','SKU','Quantity','Unit','Min Stock','Unit Cost','Location','Custodian','Description','Notes','Status','Last Updated'];
+  const rows = ITEMS.map(i=>[i.id,i.name,i.category,i.sku,i.quantity,i.unit,i.minStock,i.unitCost,i.location,i.custodian||'',i.description||'',i.notes||'',statusLabel(status(i)),new Date(i.lastUpdated).toLocaleString()]);
   const csv = [headers,...rows].map(r=>r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\n');
   forceDownload('campus-stock-inventory.csv', 'text/csv', csv);
 });
@@ -1272,6 +1400,36 @@ function auditRowHtml(entry){
     <td><span class="pill pill-${auditPillClass(entry.state)}">${auditStateLabel(entry.state)}</span>${entry.checkedAt?`<div style="color:var(--text-dim);font-size:10.5px;margin-top:2px;">${fmtDate(entry.checkedAt)}</div>`:''}</td>
     <td>${actionCell}</td>
   </tr>`;
+}
+
+function auditFrequencyLabel(f){
+  return {none:'One-time', weekly:'Weekly', monthly:'Monthly', quarterly:'Quarterly', termly:'Termly', yearly:'Yearly'}[f] || 'One-time';
+}
+function nextDueDate(session){
+  if(!session.frequency || session.frequency==='none' || !session.completedAt) return null;
+  const days = {weekly:7, monthly:30, quarterly:90, termly:120, yearly:365}[session.frequency];
+  if(!days) return null;
+  return session.completedAt + days*24*60*60*1000;
+}
+function renderAuditKpis(past){
+  const container = document.getElementById('auditKpiRow');
+  if(!container) return;
+  if(past.length===0){ container.innerHTML=''; return; }
+  const totalMatched = past.reduce((s,a)=>s+a.items.filter(x=>x.state==='matched').length,0);
+  const totalChecked = past.reduce((s,a)=>s+a.items.filter(x=>x.state!=='pending').length,0);
+  const totalDisc = past.reduce((s,a)=>s+a.items.filter(x=>x.state==='discrepancy').length,0);
+  const totalMissing = past.reduce((s,a)=>s+a.items.filter(x=>x.state==='missing').length,0);
+  const accuracy = totalChecked ? Math.round(totalMatched/totalChecked*100) : 0;
+  const last = past.slice().sort((a,b)=>(b.completedAt||0)-(a.completedAt||0))[0];
+  const upcoming = past.map(nextDueDate).filter(Boolean).sort((a,b)=>a-b)[0];
+  container.innerHTML = `
+    <div class="kpi"><div class="kpi-label">Audits completed</div><div class="kpi-value">${past.length}</div></div>
+    <div class="kpi"><div class="kpi-label">Overall accuracy</div><div class="kpi-value ${accuracy<90?'amber':'teal'}">${accuracy}%</div></div>
+    <div class="kpi"><div class="kpi-label">Total discrepancies</div><div class="kpi-value amber">${totalDisc}</div></div>
+    <div class="kpi"><div class="kpi-label">Total missing</div><div class="kpi-value red">${totalMissing}</div></div>
+    <div class="kpi"><div class="kpi-label">Last audit</div><div class="kpi-value" style="font-size:16px;">${last?fmtDate(last.completedAt||last.startedAt):'—'}</div></div>
+    <div class="kpi"><div class="kpi-label">Next due</div><div class="kpi-value" style="font-size:16px;">${upcoming? new Date(upcoming).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}) : '—'}</div></div>
+  `;
 }
 
 function renderStockAudit(){
@@ -1304,7 +1462,7 @@ function renderStockAudit(){
     container.innerHTML = `
       <div class="report-section">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
-          <div><strong style="font-size:15px;">${CURRENT_AUDIT.name}</strong><div style="color:var(--text-dim);font-size:12px;">📍 ${CURRENT_AUDIT.location||'All locations'} · Started ${fmtDate(CURRENT_AUDIT.startedAt)} by ${CURRENT_AUDIT.by}</div></div>
+          <div><strong style="font-size:15px;">${CURRENT_AUDIT.name}</strong><div style="color:var(--text-dim);font-size:12px;">📍 ${CURRENT_AUDIT.location||'All locations'} · ${auditFrequencyLabel(CURRENT_AUDIT.frequency)} · Started ${fmtDate(CURRENT_AUDIT.startedAt)} by ${CURRENT_AUDIT.by}</div></div>
         </div>
         <div class="bar-track" style="height:10px;margin-bottom:8px;"><div class="bar-fill" style="width:${pct}%;"></div></div>
         <div style="color:var(--text-dim);font-size:12px;margin-bottom:16px;">${checked} of ${total} items checked (${pct}%)</div>
@@ -1338,23 +1496,37 @@ function renderStockAudit(){
     container.innerHTML = `
       <div class="report-section">
         <h3>Start a stock audit</h3>
-        <p style="color:var(--text-dim);font-size:12.5px;margin:-4px 0 14px 0;">Pick a location to audit just that room, or leave it as "All locations" for a full physical count. Scan each tag with the camera, or check items off manually as you go.</p>
+        <p style="color:var(--text-dim);font-size:12.5px;margin:-4px 0 14px 0;">Pick a location to audit just that room, or leave it as "All locations" for a full physical count. Set a frequency to track periodic-audit compliance for management reporting. Scan each tag with the camera, or check items off manually as you go.</p>
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-          <input class="search-box" id="newAuditName" placeholder="Audit name, e.g. Term 2 2026 Physical Count" style="max-width:300px;margin:0;">
+          <input class="search-box" id="newAuditName" placeholder="Audit name, e.g. Term 2 2026 Physical Count" style="max-width:280px;margin:0;">
           <select class="filter" id="newAuditLocation" style="margin:0;"><option value="">All locations</option></select>
+          <select class="filter" id="newAuditFrequency" style="margin:0;">
+            <option value="none">One-time</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+            <option value="quarterly">Quarterly</option>
+            <option value="termly">Termly</option>
+            <option value="yearly">Yearly</option>
+          </select>
           <button class="btn btn-primary" onclick="startAuditFlow()">+ Start audit</button>
         </div>
         <p style="color:var(--text-dim);font-size:11.5px;margin:10px 0 0 0;" id="newAuditCount"></p>
       </div>
       <div class="report-section">
+        <h3>Audit performance — for management review</h3>
+        <div class="kpi-row" id="auditKpiRow"></div>
+      </div>
+      <div class="report-section">
         <h3>Past audits</h3>
-        ${past.length ? `<div class="table-wrap" style="border:none;"><table><thead><tr><th>Name</th><th>Location</th><th>Date</th><th>Items</th><th>Matched</th><th>Discrepancies</th><th>Missing</th><th></th></tr></thead>
+        ${past.length ? `<div class="table-wrap" style="border:none;"><table><thead><tr><th>Name</th><th>Location</th><th>Frequency</th><th>Date</th><th>Items</th><th>Matched</th><th>Discrepancies</th><th>Missing</th><th>Next due</th><th></th></tr></thead>
         <tbody>${past.map(a=>{
           const m=a.items.filter(x=>x.state==='matched').length;
           const d=a.items.filter(x=>x.state==='discrepancy').length;
           const ms=a.items.filter(x=>x.state==='missing').length;
-          return `<tr><td>${a.name}</td><td>${a.location||'All locations'}</td><td>${fmtDate(a.completedAt||a.startedAt)}</td><td>${a.items.length}</td><td>${m}</td>
+          const due = nextDueDate(a);
+          return `<tr><td>${a.name}</td><td>${a.location||'All locations'}</td><td>${auditFrequencyLabel(a.frequency)}</td><td>${fmtDate(a.completedAt||a.startedAt)}</td><td>${a.items.length}</td><td>${m}</td>
             <td>${d>0?`<span style="color:var(--amber);">${d}</span>`:d}</td><td>${ms>0?`<span style="color:var(--red);">${ms}</span>`:ms}</td>
+            <td>${due? new Date(due).toLocaleDateString(undefined,{month:'short',day:'numeric'}) : '—'}</td>
             <td><div class="row-actions">
               <button class="icon-btn" title="Export CSV" onclick="exportAuditSessionCsv('${a.id}')">⬇</button>
               <button class="icon-btn" title="Print" onclick="printAuditSession('${a.id}')">🖨</button>
@@ -1364,6 +1536,7 @@ function renderStockAudit(){
         : '<div style="color:var(--text-dim);">No audits completed yet.</div>'}
       </div>`;
     fillSelectOptions(document.getElementById('newAuditLocation'), allLocationNames(), {placeholder:'All locations'});
+    renderAuditKpis(past);
     const updateCount = ()=>{
       const loc = document.getElementById('newAuditLocation').value;
       const n = loc ? ITEMS.filter(i=>i.location===loc).length : ITEMS.length;
@@ -1393,12 +1566,14 @@ window.recheckAuditItem = (itemId)=>{
 
 window.startAuditScanFromHead = ()=>{
   auditScanMode = true;
+  movementScanMode = false;
   document.querySelector('.nav-item[data-view="scan"]').click();
   updateAuditScanBanner();
 };
 
 window.startAuditFlow = async ()=>{
   const loc = document.getElementById('newAuditLocation')?.value||'';
+  const freq = document.getElementById('newAuditFrequency')?.value||'none';
   const scoped = loc ? ITEMS.filter(i=>i.location===loc) : ITEMS;
   if(scoped.length===0){ alert(loc ? `No items are recorded at "${loc}" yet.` : 'Add some items to Inventory before starting a stock audit.'); return; }
   const nameInput = document.getElementById('newAuditName');
@@ -1407,6 +1582,7 @@ window.startAuditFlow = async ()=>{
     id: genAuditId(),
     name,
     location: loc || 'All locations',
+    frequency: freq,
     startedAt: Date.now(),
     completedAt: null,
     status: 'in-progress',
@@ -1483,7 +1659,7 @@ window.printAuditSession = (id)=>{
   const a = AUDITS.find(x=>x.id===id); if(!a) return;
   const rows = a.items.map(e=>`<tr><td>${e.itemName}</td><td>${e.itemId}</td><td>${e.expectedQty}</td><td>${e.countedQty??'—'}</td><td>${auditStateLabel(e.state)}</td></tr>`).join('');
   const html = `<h1>Campus Stock — Stock Audit</h1>
-    <p style="color:#666;font-size:12px;">${a.name} · ${fmtDate(a.startedAt)} – ${a.completedAt?fmtDate(a.completedAt):'in progress'} · by ${a.by}</p>
+    <p style="color:#666;font-size:12px;">${a.name} · ${fmtDate(a.startedAt)} – ${a.completedAt?fmtDate(a.completedAt):'in progress'} · by ${a.by} · ${auditFrequencyLabel(a.frequency)}</p>
     <table><thead><tr><th>Item</th><th>ID</th><th>Expected</th><th>Counted</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`;
   printHTML('Stock Audit', html);
 };
@@ -1563,7 +1739,7 @@ document.getElementById('btnMoveStock').addEventListener('click', async ()=>{
     if(dest){ dest.quantity += qty; dest.lastUpdated = Date.now(); }
     else{
       dest = { id: genId(), name:item.name, category:item.category, sku:item.sku||'', quantity:qty, unit:item.unit,
-        minStock:item.minStock, unitCost:item.unitCost, location:toLoc, notes:item.notes||'', lastUpdated:Date.now() };
+        minStock:item.minStock, unitCost:item.unitCost, location:toLoc, custodian:item.custodian||'', description:item.description||'', notes:item.notes||'', lastUpdated:Date.now() };
       ITEMS.push(dest);
     }
     await saveItems(ITEMS);
@@ -1671,33 +1847,4 @@ document.getElementById('fileRestore').addEventListener('change',(e)=>{
   ITEMS = await loadItems();
   LOG = await loadLog();
   AUDITS = await loadAudits();
-  let cats = await loadCategories();
-  if(cats===null){
-    // first run (or upgrading from before the Lists Register existed) — seed from
-    // defaults plus whatever categories/locations already appear on saved items.
-    cats = [...new Set([...DEFAULT_CATEGORIES, ...ITEMS.map(i=>i.category).filter(Boolean)])];
-    await saveCategories(cats);
-  }
-  CATEGORIES = cats;
-  let locs = await loadLocations();
-  if(locs===null){
-    locs = [...new Set(ITEMS.map(i=>i.location).filter(Boolean))];
-    await saveLocations(locs);
-  }
-  LOCATIONS = locs;
-  CURRENT_AUDIT = AUDITS.find(a=>a.status==='in-progress') || null;
-  OPERATOR = (await loadOperator()) || 'Staff';
-  refreshOperatorLabel();
-  refreshDashboard();
-  renderLog();
-})();
-
-if('serviceWorker' in navigator){
-  window.addEventListener('load', ()=>{
-    navigator.serviceWorker.register('./sw.js').catch(err=>console.warn('Service worker registration failed:', err));
-  });
-}
-</script>
-</body>
-</html>
-
+  let cats = awa
