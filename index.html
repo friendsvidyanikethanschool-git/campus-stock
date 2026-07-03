@@ -14,8 +14,21 @@
 <link rel="apple-touch-icon" href="./icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script>
+  // Fallback to a second CDN if the primary one is blocked/unreachable, so scanning
+  // and label QR codes don't silently stop working.
+  window.addEventListener('load', function(){
+    function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
+    if(typeof QRCode === 'undefined'){
+      loadScript('https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js').catch(()=>console.error('QRCode library failed to load from both CDNs.'));
+    }
+    if(typeof jsQR === 'undefined'){
+      loadScript('https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js').catch(()=>console.error('jsQR library failed to load from both CDNs.'));
+    }
+  });
+</script>
 <style>
 :root{
   --bg:#12161F;
@@ -252,6 +265,7 @@ tr:hover td{background:rgba(255,255,255,0.02);}
             <div class="cam-msg" id="camMsg">Camera not started yet.</div>
             <video id="video" autoplay playsinline muted style="display:none;"></video>
             <div class="scan-reticle" id="reticle" style="display:none;"></div>
+            <div id="scanStatus" style="display:none;position:absolute;bottom:10px;left:0;right:0;text-align:center;color:var(--gold);font-size:12px;font-family:var(--mono,monospace);">Scanning… hold steady, fill the frame with the QR code</div>
           </div>
           <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;">
             <button class="btn btn-primary" id="btnStartCam">Start camera</button>
@@ -669,8 +683,23 @@ document.getElementById('btnSaveItem').addEventListener('click', async ()=>{
 
 /* ================= QR HELPERS ================= */
 function makeQr(container, text, size){
-  container.innerHTML='';
-  new QRCode(container,{text, width:size||110, height:size||110, correctLevel:QRCode.CorrectLevel.M});
+  container.innerHTML = '';
+  // Render at 4x the display size internally (correctLevel H = most damage-resistant),
+  // then scale down with CSS — this is what makes small printed labels reliably scannable.
+  const renderSize = Math.max((size||110)*4, 320);
+  const wrap = document.createElement('div');
+  wrap.style.width = (size||110)+'px';
+  wrap.style.height = (size||110)+'px';
+  wrap.style.overflow = 'hidden';
+  container.appendChild(wrap);
+  const inner = document.createElement('div');
+  wrap.appendChild(inner);
+  new QRCode(inner,{text, width:renderSize, height:renderSize, correctLevel:QRCode.CorrectLevel.H});
+  // qrcodejs renders async-ish via canvas; scale the resulting canvas/img down visually.
+  requestAnimationFrame(()=>{
+    const el = inner.querySelector('canvas') || inner.querySelector('img');
+    if(el){ el.style.width = (size||110)+'px'; el.style.height = (size||110)+'px'; el.style.imageRendering = 'pixelated'; }
+  });
 }
 
 /* ================= LABELS / PRINT ================= */
@@ -730,6 +759,7 @@ async function startCamera(){
     video.style.display='block';
     document.getElementById('camMsg').style.display='none';
     document.getElementById('reticle').style.display='block';
+    document.getElementById('scanStatus').style.display='block';
     document.getElementById('btnStartCam').style.display='none';
     document.getElementById('btnStopCam').style.display='inline-flex';
     scanning = true;
@@ -744,6 +774,7 @@ function stopCamera(){
   if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
   video.style.display='none';
   document.getElementById('reticle').style.display='none';
+  document.getElementById('scanStatus').style.display='none';
   document.getElementById('btnStartCam').style.display='inline-flex';
   document.getElementById('btnStopCam').style.display='none';
 }
@@ -752,13 +783,23 @@ document.getElementById('btnStopCam').addEventListener('click',stopCamera);
 
 function scanLoop(){
   if(!scanning) return;
-  if(video.readyState===video.HAVE_ENOUGH_DATA){
-    canvasScan.width = video.videoWidth; canvasScan.height = video.videoHeight;
-    const ctx = canvasScan.getContext('2d');
-    ctx.drawImage(video,0,0,canvasScan.width,canvasScan.height);
-    const imgData = ctx.getImageData(0,0,canvasScan.width,canvasScan.height);
-    const code = jsQR(imgData.data, imgData.width, imgData.height);
-    if(code && code.data){ handleScan(code.data); return; }
+  try{
+    if(typeof jsQR === 'undefined'){
+      document.getElementById('camMsg').style.display='block';
+      document.getElementById('camMsg').textContent = 'The QR scanning library failed to load (check your internet connection and reload the page). You can still use "Upload photo" or type the ID manually.';
+      stopCamera();
+      return;
+    }
+    if(video.readyState===video.HAVE_ENOUGH_DATA){
+      canvasScan.width = video.videoWidth; canvasScan.height = video.videoHeight;
+      const ctx = canvasScan.getContext('2d', {willReadFrequently:true});
+      ctx.drawImage(video,0,0,canvasScan.width,canvasScan.height);
+      const imgData = ctx.getImageData(0,0,canvasScan.width,canvasScan.height);
+      const code = jsQR(imgData.data, imgData.width, imgData.height, {inversionAttempts:'attemptBoth'});
+      if(code && code.data){ handleScan(code.data); return; }
+    }
+  }catch(err){
+    console.error('Scan loop error:', err);
   }
   requestAnimationFrame(scanLoop);
 }
@@ -766,6 +807,10 @@ function scanLoop(){
 document.getElementById('fileScan').addEventListener('change', (e)=>{
   const file = e.target.files[0];
   if(!file) return;
+  if(typeof jsQR === 'undefined'){
+    alert('The QR scanning library failed to load. Check your internet connection, reload the page, and try again — or type the item ID manually below.');
+    e.target.value=''; return;
+  }
   const img = new Image();
   img.onload = ()=>{
     const c = document.createElement('canvas');
@@ -773,9 +818,9 @@ document.getElementById('fileScan').addEventListener('change', (e)=>{
     const ctx = c.getContext('2d');
     ctx.drawImage(img,0,0);
     const imgData = ctx.getImageData(0,0,c.width,c.height);
-    const code = jsQR(imgData.data, imgData.width, imgData.height);
+    const code = jsQR(imgData.data, imgData.width, imgData.height, {inversionAttempts:'attemptBoth'});
     if(code && code.data){ handleScan(code.data); }
-    else { alert('No QR code detected in that photo. Try a clearer, closer image.'); }
+    else { alert('No QR code detected in that photo. Try a clearer, closer, well-lit image — or type the item ID manually below.'); }
   };
   img.src = URL.createObjectURL(file);
   e.target.value='';
