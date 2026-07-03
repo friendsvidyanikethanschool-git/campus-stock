@@ -14,15 +14,15 @@
 <link rel="apple-touch-icon" href="./icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <script>
   // Fallback to a second CDN if the primary one is blocked/unreachable, so scanning
   // and label QR codes don't silently stop working.
   window.addEventListener('load', function(){
     function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
-    if(typeof QRCode === 'undefined'){
-      loadScript('https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js').catch(()=>console.error('QRCode library failed to load from both CDNs.'));
+    if(typeof QRCode === 'undefined' || typeof QRCode.toCanvas !== 'function'){
+      loadScript('https://cdnjs.cloudflare.com/ajax/libs/qrcode/1.4.4/qrcode.min.js').catch(()=>console.error('QRCode library failed to load from both CDNs.'));
     }
     if(typeof jsQR === 'undefined'){
       loadScript('https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js').catch(()=>console.error('jsQR library failed to load from both CDNs.'));
@@ -200,9 +200,11 @@ tr:hover td{background:rgba(255,255,255,0.02);}
     </div>
     <button class="nav-item active" data-view="dashboard">📦&nbsp; Inventory</button>
     <button class="nav-item" data-view="scan">🔎&nbsp; Scan</button>
+    <button class="nav-item" data-view="movement">🚚&nbsp; Stock Movement</button>
     <button class="nav-item" data-view="labels">🏷️&nbsp; Print Labels</button>
     <button class="nav-item" data-view="reports">📊&nbsp; Reports</button>
     <button class="nav-item" data-view="stockaudit">🧮&nbsp; Stock Audit</button>
+    <button class="nav-item" data-view="lists">🗂️&nbsp; Lists Register</button>
     <button class="nav-item" data-view="audit">🧾&nbsp; Change Log</button>
     <div class="sidebar-foot">
       Data is stored locally in this browser only — it won't sync to other phones or computers. Use Backup &amp; restore in the Change Log tab to move data between devices.
@@ -230,6 +232,7 @@ tr:hover td{background:rgba(255,255,255,0.02);}
       <div class="toolbar">
         <input class="search-box" id="searchBox" placeholder="Search by name, SKU, or location…">
         <select class="filter" id="categoryFilter"><option value="">All categories</option></select>
+        <select class="filter" id="locationFilter"><option value="">All locations</option></select>
         <select class="filter" id="statusFilter">
           <option value="">All statuses</option>
           <option value="ok">In stock</option>
@@ -364,6 +367,68 @@ tr:hover td{background:rgba(255,255,255,0.02);}
       <div id="auditBody-container"></div>
     </div>
 
+    <!-- LISTS REGISTER -->
+    <div class="view" id="view-lists">
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">Lists Register</h1>
+          <p class="page-sub">Manage the categories and locations offered when adding or editing items — keeps naming consistent for audits.</p>
+        </div>
+      </div>
+      <div class="scan-grid">
+        <div class="scan-panel">
+          <h3 style="margin-top:0;font-size:14px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.04em;">Categories</h3>
+          <div style="display:flex;gap:8px;margin-bottom:14px;">
+            <input class="search-box" id="newCategoryInput" placeholder="New category name…" style="margin:0;">
+            <button class="btn btn-primary" onclick="addCategory()">+ Add</button>
+          </div>
+          <div class="label-select-list" id="categoryListBox" style="max-height:420px;"></div>
+        </div>
+        <div class="scan-panel">
+          <h3 style="margin-top:0;font-size:14px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.04em;">Locations / Rooms</h3>
+          <div style="display:flex;gap:8px;margin-bottom:14px;">
+            <input class="search-box" id="newLocationInput" placeholder="New location, e.g. Store Room B…" style="margin:0;">
+            <button class="btn btn-primary" onclick="addLocation()">+ Add</button>
+          </div>
+          <div class="label-select-list" id="locationListBox" style="max-height:420px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STOCK MOVEMENT -->
+    <div class="view" id="view-movement">
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">Stock Movement</h1>
+          <p class="page-sub">Transfer an item (or part of its quantity) from one location to another — recorded in the log both ways.</p>
+        </div>
+      </div>
+      <div class="scan-grid">
+        <div class="scan-panel">
+          <div class="form-grid">
+            <div class="form-field full"><label>Item *</label>
+              <select id="mvItem"><option value="">Select an item…</option></select>
+            </div>
+            <div class="form-field"><label>From location</label><input id="mvFrom" disabled placeholder="—"></div>
+            <div class="form-field"><label>To location *</label><select id="mvTo"><option value="">Select destination…</option></select></div>
+            <div class="form-field"><label>Quantity to move *</label><input id="mvQty" type="number" min="1" value="1"></div>
+            <div class="form-field"><label>Available at source</label><input id="mvAvail" disabled placeholder="—"></div>
+            <div class="form-field full"><label>Note (optional)</label><input id="mvNote" placeholder="e.g. Relocated for Term 2 sports day"></div>
+          </div>
+          <div style="margin-top:16px;">
+            <button class="btn btn-primary" id="btnMoveStock">🚚 Record movement</button>
+          </div>
+        </div>
+        <div class="scan-panel">
+          <h3 style="margin-top:0;font-size:14px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.04em;">Recent movements</h3>
+          <div class="toolbar" style="margin-bottom:12px;">
+            <select class="filter" id="mvLocationFilter"><option value="">All locations</option></select>
+          </div>
+          <div class="log-list" id="movementList" style="max-height:420px;"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- CHANGE LOG -->
     <div class="view" id="view-audit">
       <div class="page-head">
@@ -422,24 +487,24 @@ tr:hover td{background:rgba(255,255,255,0.02);}
   <div class="modal">
     <h2 id="modalTitle">Add Item</h2>
     <div class="form-grid">
-      <div class="form-field full"><label>Item name</label><input id="fName" placeholder="e.g. Basketball, Lab Beaker Set"></div>
-      <div class="form-field"><label>Category</label>
-        <select id="fCategory">
-          <option>Furniture</option><option>Electronics</option><option>Sports Equipment</option>
-          <option>Lab Equipment</option><option>Office Supplies</option><option>Cleaning Supplies</option>
-          <option>Textbooks</option><option>Art Supplies</option><option>Other</option>
-        </select>
+      <div class="form-field full"><label>Asset / Stock ID</label><input id="fAssetId" disabled class="mono"></div>
+      <div class="form-field full"><label>Location / room *</label>
+        <select id="fLocation"><option value="">Select location…</option></select>
       </div>
-      <div class="form-field"><label>SKU (optional)</label><input id="fSku" placeholder="auto-generated if blank"></div>
-      <div class="form-field"><label>Quantity</label><input id="fQty" type="number" min="0" value="0"></div>
-      <div class="form-field"><label>Unit</label>
+      <div class="form-field full"><label>Item name *</label><input id="fName" placeholder="e.g. Basketball, Lab Beaker Set" required></div>
+      <div class="form-field"><label>Category *</label>
+        <select id="fCategory"><option value="">Select category…</option></select>
+      </div>
+      <div class="form-field"><label>SKU / barcode (optional)</label><input id="fSku" placeholder="extra code, if any"></div>
+      <div class="form-field"><label>Quantity *</label><input id="fQty" type="number" min="0" value="0" required></div>
+      <div class="form-field"><label>Unit *</label>
         <select id="fUnit"><option>pcs</option><option>box</option><option>set</option><option>ream</option><option>pack</option><option>kg</option><option>litre</option></select>
       </div>
-      <div class="form-field"><label>Minimum stock</label><input id="fMin" type="number" min="0" value="1"></div>
-      <div class="form-field"><label>Unit cost (₹)</label><input id="fCost" type="number" min="0" step="0.01" value="0"></div>
-      <div class="form-field full"><label>Location / room</label><input id="fLocation" placeholder="e.g. Store Room B, Lab 2"></div>
+      <div class="form-field"><label>Minimum stock *</label><input id="fMin" type="number" min="0" value="1" required></div>
+      <div class="form-field"><label>Unit cost (₹) *</label><input id="fCost" type="number" min="0" step="0.01" value="0" required></div>
       <div class="form-field full"><label>Notes</label><textarea id="fNotes" rows="2"></textarea></div>
     </div>
+    <p style="color:var(--text-dim);font-size:11.5px;margin:2px 0 0 0;">* All fields required — keeping every item location-tagged makes room-by-room audits accurate.</p>
     <div class="modal-actions">
       <button class="btn" id="btnCancelModal">Cancel</button>
       <button class="btn btn-primary" id="btnSaveItem">Save item</button>
@@ -481,6 +546,22 @@ async function loadOperator(){
 }
 async function saveOperator(name){
   lsSet('operator', name);
+}
+/* categories / locations register (lists) */
+const DEFAULT_CATEGORIES = ['Furniture','Electronics','Sports Equipment','Lab Equipment','Office Supplies','Cleaning Supplies','Textbooks','Art Supplies','Other'];
+async function loadCategories(){
+  try{ const v = lsGet('categories'); return v ? JSON.parse(v) : null; }
+  catch(e){ return null; }
+}
+async function saveCategories(cats){
+  lsSet('categories', JSON.stringify(cats));
+}
+async function loadLocations(){
+  try{ const v = lsGet('locations'); return v ? JSON.parse(v) : null; }
+  catch(e){ return null; }
+}
+async function saveLocations(locs){
+  lsSet('locations', JSON.stringify(locs));
 }
 
 /* ============ ROBUST PRINT / DOWNLOAD HELPERS ============
@@ -538,6 +619,8 @@ function forceDownload(filename, mime, content){
 let ITEMS = [];
 let LOG = [];
 let AUDITS = [];
+let CATEGORIES = [];
+let LOCATIONS = [];
 let CURRENT_AUDIT = null;
 let auditScanMode = false;
 let OPERATOR = 'Staff';
@@ -561,8 +644,8 @@ function status(item){
 function statusLabel(s){ return s==='out'?'Out of stock':s==='low'?'Low stock':'In stock'; }
 function fmtDate(ts){ const d=new Date(ts); return d.toLocaleDateString(undefined,{month:'short',day:'numeric'})+' · '+d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}); }
 
-async function addLog(itemId,itemName,action,change,note){
-  LOG.unshift({ts:Date.now(),itemId,itemName,action,change,note:note||'',by:OPERATOR||'Staff'});
+async function addLog(itemId,itemName,action,change,note,extra){
+  LOG.unshift({ts:Date.now(),itemId,itemName,action,change,note:note||'',by:OPERATOR||'Staff',...(extra||{})});
   await saveLog(LOG);
   renderLog();
   renderReportLog();
@@ -592,16 +675,88 @@ document.querySelectorAll('.nav-item').forEach(btn=>{
     if(btn.dataset.view==='reports') renderReports();
     if(btn.dataset.view==='audit') renderAudit();
     if(btn.dataset.view==='stockaudit') renderStockAudit();
+    if(btn.dataset.view==='lists') renderLists();
+    if(btn.dataset.view==='movement') renderMovement();
     if(btn.dataset.view==='scan') updateAuditScanBanner();
     if(btn.dataset.view!=='scan'){ stopCamera(); auditScanMode=false; }
   });
 });
 
+/* ================= LISTS REGISTER (categories & locations) ================= */
+function allCategoryNames(){
+  // union of the register + anything already used on items, so legacy data never disappears
+  return [...new Set([...CATEGORIES, ...ITEMS.map(i=>i.category).filter(Boolean)])].sort((a,b)=>a.localeCompare(b));
+}
+function allLocationNames(){
+  return [...new Set([...LOCATIONS, ...ITEMS.map(i=>i.location).filter(Boolean)])].sort((a,b)=>a.localeCompare(b));
+}
+function fillSelectOptions(sel, options, opts){
+  const cfg = opts||{};
+  const current = sel.value;
+  const placeholder = cfg.placeholder!==undefined ? `<option value="">${cfg.placeholder}</option>` : '';
+  sel.innerHTML = placeholder + options.map(o=>`<option value="${o}">${o}</option>`).join('');
+  if(current && options.includes(current)) sel.value = current;
+  else if(cfg.selectValue!==undefined && options.includes(cfg.selectValue)) sel.value = cfg.selectValue;
+}
+function renderLists(){
+  const catBox = document.getElementById('categoryListBox');
+  const locBox = document.getElementById('locationListBox');
+  if(!catBox || !locBox) return;
+  const catCounts = {}; ITEMS.forEach(i=>{ catCounts[i.category]=(catCounts[i.category]||0)+1; });
+  const locCounts = {}; ITEMS.forEach(i=>{ if(i.location) locCounts[i.location]=(locCounts[i.location]||0)+1; });
+  catBox.innerHTML = allCategoryNames().map(c=>`
+    <div class="select-row" style="justify-content:space-between;">
+      <span><strong>${c}</strong> <span style="color:var(--text-dim);font-size:11.5px;">${catCounts[c]?catCounts[c]+' item(s)':'unused'}</span></span>
+      <button class="icon-btn btn-danger" title="Remove" onclick="removeCategory('${c.replace(/'/g,"\\'")}')">🗑</button>
+    </div>`).join('') || '<div style="color:var(--text-dim);padding:6px;">No categories yet.</div>';
+  locBox.innerHTML = allLocationNames().map(l=>`
+    <div class="select-row" style="justify-content:space-between;">
+      <span><strong>${l}</strong> <span style="color:var(--text-dim);font-size:11.5px;">${locCounts[l]?locCounts[l]+' item(s)':'unused'}</span></span>
+      <button class="icon-btn btn-danger" title="Remove" onclick="removeLocation('${l.replace(/'/g,"\\'")}')">🗑</button>
+    </div>`).join('') || '<div style="color:var(--text-dim);padding:6px;">No locations yet.</div>';
+}
+window.addCategory = async ()=>{
+  const input = document.getElementById('newCategoryInput');
+  const name = (input.value||'').trim();
+  if(!name) return;
+  if(!CATEGORIES.some(c=>c.toLowerCase()===name.toLowerCase())){ CATEGORIES.push(name); await saveCategories(CATEGORIES); }
+  input.value='';
+  renderLists();
+};
+window.removeCategory = async (name)=>{
+  const inUse = ITEMS.some(i=>i.category===name);
+  if(inUse){ alert(`"${name}" is still used by one or more items — reassign those items to another category before removing it from the list.`); return; }
+  if(!confirm(`Remove category "${name}" from the list?`)) return;
+  CATEGORIES = CATEGORIES.filter(c=>c!==name);
+  await saveCategories(CATEGORIES);
+  renderLists();
+};
+window.addLocation = async ()=>{
+  const input = document.getElementById('newLocationInput');
+  const name = (input.value||'').trim();
+  if(!name) return;
+  if(!LOCATIONS.some(l=>l.toLowerCase()===name.toLowerCase())){ LOCATIONS.push(name); await saveLocations(LOCATIONS); }
+  input.value='';
+  renderLists();
+};
+window.removeLocation = async (name)=>{
+  const inUse = ITEMS.some(i=>i.location===name);
+  if(inUse){ alert(`"${name}" is still used by one or more items — move those items to another location before removing it from the list.`); return; }
+  if(!confirm(`Remove location "${name}" from the list?`)) return;
+  LOCATIONS = LOCATIONS.filter(l=>l!==name);
+  await saveLocations(LOCATIONS);
+  renderLists();
+};
+
 /* ================= RENDER: DASHBOARD ================= */
 function populateCategoryFilter(){
   const sel = document.getElementById('categoryFilter');
-  const cats = [...new Set(ITEMS.map(i=>i.category))].sort();
-  sel.innerHTML = '<option value="">All categories</option>' + cats.map(c=>`<option value="${c}">${c}</option>`).join('');
+  fillSelectOptions(sel, allCategoryNames(), {placeholder:'All categories'});
+}
+function populateLocationFilter(){
+  const sel = document.getElementById('locationFilter');
+  if(!sel) return;
+  fillSelectOptions(sel, allLocationNames(), {placeholder:'All locations'});
 }
 
 function renderKpis(){
@@ -622,13 +777,16 @@ function renderKpis(){
 function renderTable(){
   const q = document.getElementById('searchBox').value.toLowerCase();
   const cat = document.getElementById('categoryFilter').value;
+  const loc = document.getElementById('locationFilter')?.value||'';
   const st = document.getElementById('statusFilter').value;
   let rows = ITEMS.filter(i=>{
     const matchesQ = !q || i.name.toLowerCase().includes(q) || (i.sku||'').toLowerCase().includes(q) || (i.location||'').toLowerCase().includes(q) || i.id.toLowerCase().includes(q);
     const matchesC = !cat || i.category===cat;
+    const matchesL = !loc || i.location===loc;
     const matchesS = !st || status(i)===st;
-    return matchesQ && matchesC && matchesS;
+    return matchesQ && matchesC && matchesL && matchesS;
   });
+  rows = rows.slice().sort((a,b)=> (a.location||'').localeCompare(b.location||'') || a.name.localeCompare(b.name));
   const body = document.getElementById('itemTableBody');
   document.getElementById('emptyState').style.display = ITEMS.length===0 ? 'block' : 'none';
   body.innerHTML = rows.map(i=>{
@@ -642,6 +800,7 @@ function renderTable(){
       <td><span class="pill pill-${s}">${statusLabel(s)}</span></td>
       <td><div class="row-actions">
         <button class="icon-btn" onclick="editItem('${i.id}')" title="Edit">✎</button>
+        <button class="icon-btn" onclick="openMoveModal('${i.id}')" title="Move / transfer location">🚚</button>
         <button class="icon-btn" onclick="deleteItem('${i.id}')" title="Delete">🗑</button>
       </div></td>
     </tr>`;
@@ -650,11 +809,12 @@ function renderTable(){
 
 function refreshDashboard(){
   populateCategoryFilter();
+  populateLocationFilter();
   renderKpis();
   renderTable();
 }
 ['searchBox'].forEach(id=>document.getElementById(id).addEventListener('input',renderTable));
-['categoryFilter','statusFilter'].forEach(id=>document.getElementById(id).addEventListener('change',renderTable));
+['categoryFilter','locationFilter','statusFilter'].forEach(id=>document.getElementById(id).addEventListener('change',renderTable));
 
 /* ================= ADD/EDIT MODAL ================= */
 const modal = document.getElementById('itemModal');
@@ -664,14 +824,17 @@ document.getElementById('btnCancelModal').addEventListener('click',()=>modal.cla
 function openModal(item){
   editingId = item ? item.id : null;
   document.getElementById('modalTitle').textContent = item ? 'Edit Item' : 'Add Item';
+  document.getElementById('fAssetId').value = item ? item.id : genId();
+  fillSelectOptions(document.getElementById('fCategory'), allCategoryNames(), {placeholder:'Select category…'});
+  fillSelectOptions(document.getElementById('fLocation'), allLocationNames(), {placeholder:'Select location…'});
   document.getElementById('fName').value = item?.name||'';
-  document.getElementById('fCategory').value = item?.category||'Furniture';
+  if(item?.category) document.getElementById('fCategory').value = item.category;
   document.getElementById('fSku').value = item?.sku||'';
   document.getElementById('fQty').value = item?.quantity??0;
   document.getElementById('fUnit').value = item?.unit||'pcs';
   document.getElementById('fMin').value = item?.minStock??1;
   document.getElementById('fCost').value = item?.unitCost??0;
-  document.getElementById('fLocation').value = item?.location||'';
+  if(item?.location) document.getElementById('fLocation').value = item.location;
   document.getElementById('fNotes').value = item?.notes||'';
   modal.classList.add('active');
 }
@@ -687,30 +850,40 @@ window.deleteItem = async (id)=>{
 
 document.getElementById('btnSaveItem').addEventListener('click', async ()=>{
   const name = document.getElementById('fName').value.trim();
+  const category = document.getElementById('fCategory').value;
+  const location = document.getElementById('fLocation').value;
+  const qtyRaw = document.getElementById('fQty').value;
+  const minRaw = document.getElementById('fMin').value;
+  const costRaw = document.getElementById('fCost').value;
   if(!name){ alert('Please enter an item name.'); return; }
-  const qty = Number(document.getElementById('fQty').value)||0;
+  if(!category){ alert('Please select a category. Add new ones from the Lists Register if needed.'); return; }
+  if(!location){ alert('Please select a location. Add new ones from the Lists Register if needed.'); return; }
+  if(qtyRaw===''){ alert('Please enter a quantity.'); return; }
+  if(minRaw===''){ alert('Please enter a minimum stock level.'); return; }
+  if(costRaw===''){ alert('Please enter a unit cost (enter 0 if not tracked).'); return; }
+  const qty = Number(qtyRaw)||0;
   if(editingId){
     const item = ITEMS.find(i=>i.id===editingId);
     const prevQty = item.quantity;
     Object.assign(item,{
-      name, category:document.getElementById('fCategory').value,
+      name, category,
       sku:document.getElementById('fSku').value.trim(),
       quantity:qty, unit:document.getElementById('fUnit').value,
-      minStock:Number(document.getElementById('fMin').value)||0,
-      unitCost:Number(document.getElementById('fCost').value)||0,
-      location:document.getElementById('fLocation').value.trim(),
+      minStock:Number(minRaw)||0,
+      unitCost:Number(costRaw)||0,
+      location,
       notes:document.getElementById('fNotes').value.trim(),
       lastUpdated:Date.now()
     });
     await addLog(item.id,item.name,'Edited',qty-prevQty,'Details updated');
   } else {
     const item = {
-      id: genId(), name, category:document.getElementById('fCategory').value,
+      id: document.getElementById('fAssetId').value || genId(), name, category,
       sku:document.getElementById('fSku').value.trim(),
       quantity:qty, unit:document.getElementById('fUnit').value,
-      minStock:Number(document.getElementById('fMin').value)||0,
-      unitCost:Number(document.getElementById('fCost').value)||0,
-      location:document.getElementById('fLocation').value.trim(),
+      minStock:Number(minRaw)||0,
+      unitCost:Number(costRaw)||0,
+      location,
       notes:document.getElementById('fNotes').value.trim(),
       lastUpdated:Date.now()
     };
@@ -725,21 +898,30 @@ document.getElementById('btnSaveItem').addEventListener('click', async ()=>{
 /* ================= QR HELPERS ================= */
 function makeQr(container, text, size){
   container.innerHTML = '';
-  // Render at 4x the display size internally (correctLevel H = most damage-resistant),
-  // then scale down with CSS — this is what makes small printed labels reliably scannable.
-  const renderSize = Math.max((size||110)*4, 320);
-  const wrap = document.createElement('div');
-  wrap.style.width = (size||110)+'px';
-  wrap.style.height = (size||110)+'px';
-  wrap.style.overflow = 'hidden';
-  container.appendChild(wrap);
-  const inner = document.createElement('div');
-  wrap.appendChild(inner);
-  new QRCode(inner,{text, width:renderSize, height:renderSize, correctLevel:QRCode.CorrectLevel.H});
-  // qrcodejs renders async-ish via canvas; scale the resulting canvas/img down visually.
-  requestAnimationFrame(()=>{
-    const el = inner.querySelector('canvas') || inner.querySelector('img');
-    if(el){ el.style.width = (size||110)+'px'; el.style.height = (size||110)+'px'; el.style.imageRendering = 'pixelated'; }
+  const dispSize = size||110;
+  if(typeof QRCode === 'undefined' || typeof QRCode.toCanvas !== 'function'){
+    container.innerHTML = `<div style="width:${dispSize}px;height:${dispSize}px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#a33;text-align:center;border:1px dashed #a33;">QR library failed to load — check internet connection and reload</div>`;
+    return;
+  }
+  // Render at 4x the display size internally (errorCorrectionLevel H = most damage-resistant),
+  // then scale the canvas down with CSS — this is what makes small printed labels reliably scannable.
+  const renderSize = Math.max(dispSize*4, 320);
+  const canvas = document.createElement('canvas');
+  container.appendChild(canvas);
+  QRCode.toCanvas(canvas, text, {
+    width: renderSize,
+    margin: 2,
+    errorCorrectionLevel: 'H'
+  }, function(err){
+    if(err){
+      console.error('QR render failed:', err);
+      container.innerHTML = `<div style="width:${dispSize}px;height:${dispSize}px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#a33;text-align:center;border:1px dashed #a33;">QR render failed</div>`;
+      return;
+    }
+    canvas.style.width = dispSize+'px';
+    canvas.style.height = dispSize+'px';
+    canvas.style.imageRendering = 'pixelated';
+    canvas.style.display = 'block';
   });
 }
 
@@ -1122,7 +1304,7 @@ function renderStockAudit(){
     container.innerHTML = `
       <div class="report-section">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
-          <div><strong style="font-size:15px;">${CURRENT_AUDIT.name}</strong><div style="color:var(--text-dim);font-size:12px;">Started ${fmtDate(CURRENT_AUDIT.startedAt)} by ${CURRENT_AUDIT.by}</div></div>
+          <div><strong style="font-size:15px;">${CURRENT_AUDIT.name}</strong><div style="color:var(--text-dim);font-size:12px;">📍 ${CURRENT_AUDIT.location||'All locations'} · Started ${fmtDate(CURRENT_AUDIT.startedAt)} by ${CURRENT_AUDIT.by}</div></div>
         </div>
         <div class="bar-track" style="height:10px;margin-bottom:8px;"><div class="bar-fill" style="width:${pct}%;"></div></div>
         <div style="color:var(--text-dim);font-size:12px;margin-bottom:16px;">${checked} of ${total} items checked (${pct}%)</div>
@@ -1156,20 +1338,22 @@ function renderStockAudit(){
     container.innerHTML = `
       <div class="report-section">
         <h3>Start a stock audit</h3>
-        <p style="color:var(--text-dim);font-size:12.5px;margin:-4px 0 14px 0;">Creates a checklist from your current inventory (${ITEMS.length} items). Scan each tag with the camera, or check items off manually as you go.</p>
+        <p style="color:var(--text-dim);font-size:12.5px;margin:-4px 0 14px 0;">Pick a location to audit just that room, or leave it as "All locations" for a full physical count. Scan each tag with the camera, or check items off manually as you go.</p>
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-          <input class="search-box" id="newAuditName" placeholder="Audit name, e.g. Term 2 2026 Physical Count" style="max-width:340px;margin:0;">
+          <input class="search-box" id="newAuditName" placeholder="Audit name, e.g. Term 2 2026 Physical Count" style="max-width:300px;margin:0;">
+          <select class="filter" id="newAuditLocation" style="margin:0;"><option value="">All locations</option></select>
           <button class="btn btn-primary" onclick="startAuditFlow()">+ Start audit</button>
         </div>
+        <p style="color:var(--text-dim);font-size:11.5px;margin:10px 0 0 0;" id="newAuditCount"></p>
       </div>
       <div class="report-section">
         <h3>Past audits</h3>
-        ${past.length ? `<div class="table-wrap" style="border:none;"><table><thead><tr><th>Name</th><th>Date</th><th>Items</th><th>Matched</th><th>Discrepancies</th><th>Missing</th><th></th></tr></thead>
+        ${past.length ? `<div class="table-wrap" style="border:none;"><table><thead><tr><th>Name</th><th>Location</th><th>Date</th><th>Items</th><th>Matched</th><th>Discrepancies</th><th>Missing</th><th></th></tr></thead>
         <tbody>${past.map(a=>{
           const m=a.items.filter(x=>x.state==='matched').length;
           const d=a.items.filter(x=>x.state==='discrepancy').length;
           const ms=a.items.filter(x=>x.state==='missing').length;
-          return `<tr><td>${a.name}</td><td>${fmtDate(a.completedAt||a.startedAt)}</td><td>${a.items.length}</td><td>${m}</td>
+          return `<tr><td>${a.name}</td><td>${a.location||'All locations'}</td><td>${fmtDate(a.completedAt||a.startedAt)}</td><td>${a.items.length}</td><td>${m}</td>
             <td>${d>0?`<span style="color:var(--amber);">${d}</span>`:d}</td><td>${ms>0?`<span style="color:var(--red);">${ms}</span>`:ms}</td>
             <td><div class="row-actions">
               <button class="icon-btn" title="Export CSV" onclick="exportAuditSessionCsv('${a.id}')">⬇</button>
@@ -1179,6 +1363,14 @@ function renderStockAudit(){
         }).join('')}</tbody></table></div>`
         : '<div style="color:var(--text-dim);">No audits completed yet.</div>'}
       </div>`;
+    fillSelectOptions(document.getElementById('newAuditLocation'), allLocationNames(), {placeholder:'All locations'});
+    const updateCount = ()=>{
+      const loc = document.getElementById('newAuditLocation').value;
+      const n = loc ? ITEMS.filter(i=>i.location===loc).length : ITEMS.length;
+      document.getElementById('newAuditCount').textContent = `${n} item(s) will be included${loc?' at '+loc:' (all locations)'}.`;
+    };
+    document.getElementById('newAuditLocation').addEventListener('change', updateCount);
+    updateCount();
   }
 }
 
@@ -1206,17 +1398,20 @@ window.startAuditScanFromHead = ()=>{
 };
 
 window.startAuditFlow = async ()=>{
-  if(ITEMS.length===0){ alert('Add some items to Inventory before starting a stock audit.'); return; }
+  const loc = document.getElementById('newAuditLocation')?.value||'';
+  const scoped = loc ? ITEMS.filter(i=>i.location===loc) : ITEMS;
+  if(scoped.length===0){ alert(loc ? `No items are recorded at "${loc}" yet.` : 'Add some items to Inventory before starting a stock audit.'); return; }
   const nameInput = document.getElementById('newAuditName');
-  const name = (nameInput?.value||'').trim() || `Stock Audit — ${new Date().toLocaleDateString(undefined,{month:'short',year:'numeric'})}`;
+  const name = (nameInput?.value||'').trim() || `Stock Audit — ${loc||'All locations'} — ${new Date().toLocaleDateString(undefined,{month:'short',year:'numeric'})}`;
   const session = {
     id: genAuditId(),
     name,
+    location: loc || 'All locations',
     startedAt: Date.now(),
     completedAt: null,
     status: 'in-progress',
     by: OPERATOR || 'Staff',
-    items: ITEMS.map(i=>({
+    items: scoped.map(i=>({
       itemId:i.id, itemName:i.name, category:i.category, location:i.location,
       expectedQty:Number(i.quantity), countedQty:null, state:'pending', note:'', checkedAt:null
     }))
@@ -1300,6 +1495,87 @@ window.deleteAuditSession = async (id)=>{
   renderStockAudit();
 };
 
+/* ================= STOCK MOVEMENT (location-to-location transfer) ================= */
+function populateMovementSelects(){
+  const itemSel = document.getElementById('mvItem');
+  if(!itemSel) return;
+  const current = itemSel.value;
+  itemSel.innerHTML = '<option value="">Select an item…</option>' + ITEMS.slice().sort((a,b)=>a.name.localeCompare(b.name))
+    .map(i=>`<option value="${i.id}">${i.name} (${i.id}) — ${i.location||'no location'} — ${i.quantity} ${i.unit}</option>`).join('');
+  if(current && ITEMS.some(i=>i.id===current)) itemSel.value = current;
+  fillSelectOptions(document.getElementById('mvTo'), allLocationNames(), {placeholder:'Select destination…'});
+  fillSelectOptions(document.getElementById('mvLocationFilter'), allLocationNames(), {placeholder:'All locations'});
+  updateMovementItemDetails();
+}
+function updateMovementItemDetails(){
+  const itemSel = document.getElementById('mvItem');
+  const item = ITEMS.find(i=>i.id===itemSel.value);
+  document.getElementById('mvFrom').value = item ? (item.location||'—') : '';
+  document.getElementById('mvAvail').value = item ? `${item.quantity} ${item.unit}` : '';
+  document.getElementById('mvQty').max = item ? item.quantity : '';
+  if(item) document.getElementById('mvQty').value = Math.min(Number(document.getElementById('mvQty').value)||item.quantity, item.quantity) || item.quantity;
+}
+document.getElementById('mvItem').addEventListener('change', updateMovementItemDetails);
+
+function renderMovementList(){
+  const list = document.getElementById('movementList');
+  const loc = document.getElementById('mvLocationFilter')?.value||'';
+  const rows = LOG.filter(l=> (l.action==='Moved'||l.action==='Moved out'||l.action==='Moved in') && (!loc || l.fromLocation===loc || l.toLocation===loc) );
+  list.innerHTML = rows.length ? rows.slice(0,60).map(l=>`
+    <div class="log-item">
+      <div><strong>${l.itemName}</strong> — ${l.fromLocation||'?'} → ${l.toLocation||'?'}${l.change?' ('+(l.change>0?'+':'')+l.change+')':''}
+        <div class="t">${fmtDate(l.ts)} · ${l.by||'Staff'}${l.note?' · '+l.note:''}</div></div>
+    </div>`).join('') : '<div style="color:var(--text-dim);">No movements recorded yet.</div>';
+}
+document.getElementById('mvLocationFilter').addEventListener('change', renderMovementList);
+
+function renderMovement(){
+  populateMovementSelects();
+  renderMovementList();
+}
+
+window.openMoveModal = (id)=>{
+  document.querySelector('.nav-item[data-view="movement"]').click();
+  const itemSel = document.getElementById('mvItem');
+  itemSel.value = id;
+  updateMovementItemDetails();
+};
+
+document.getElementById('btnMoveStock').addEventListener('click', async ()=>{
+  const item = ITEMS.find(i=>i.id===document.getElementById('mvItem').value);
+  if(!item){ alert('Please select an item to move.'); return; }
+  const toLoc = document.getElementById('mvTo').value;
+  if(!toLoc){ alert('Please select a destination location.'); return; }
+  const fromLoc = item.location || '(no location set)';
+  if(toLoc===item.location){ alert('Destination is the same as the current location.'); return; }
+  const qty = Number(document.getElementById('mvQty').value)||0;
+  if(qty<=0){ alert('Enter a quantity greater than 0.'); return; }
+  if(qty>item.quantity){ alert(`Only ${item.quantity} ${item.unit} available at ${fromLoc}.`); return; }
+  const note = document.getElementById('mvNote').value.trim();
+
+  if(qty===item.quantity){
+    item.location = toLoc; item.lastUpdated = Date.now();
+    await saveItems(ITEMS);
+    await addLog(item.id, item.name, 'Moved', 0, note, {fromLocation:fromLoc, toLocation:toLoc});
+  } else {
+    item.quantity -= qty; item.lastUpdated = Date.now();
+    let dest = ITEMS.find(i=> i.id!==item.id && i.name.toLowerCase()===item.name.toLowerCase() && i.category===item.category && i.location===toLoc);
+    if(dest){ dest.quantity += qty; dest.lastUpdated = Date.now(); }
+    else{
+      dest = { id: genId(), name:item.name, category:item.category, sku:item.sku||'', quantity:qty, unit:item.unit,
+        minStock:item.minStock, unitCost:item.unitCost, location:toLoc, notes:item.notes||'', lastUpdated:Date.now() };
+      ITEMS.push(dest);
+    }
+    await saveItems(ITEMS);
+    await addLog(item.id, item.name, 'Moved out', -qty, note, {fromLocation:fromLoc, toLocation:toLoc});
+    await addLog(dest.id, dest.name, 'Moved in', qty, note, {fromLocation:fromLoc, toLocation:toLoc});
+  }
+  document.getElementById('mvNote').value='';
+  refreshDashboard();
+  renderMovement();
+  alert(`Moved ${qty} ${item.unit} of "${item.name}" from ${fromLoc} to ${toLoc}.`);
+});
+
 /* ================= AUDIT ================= */
 function populateAuditActionFilter(){
   const sel = document.getElementById('auditActionFilter');
@@ -1355,7 +1631,7 @@ document.getElementById('btnPrintAudit').addEventListener('click',()=>{
 
 /* ================= BACKUP / RESTORE ================= */
 document.getElementById('btnExportBackup').addEventListener('click',()=>{
-  const backup = { exportedAt:new Date().toISOString(), items:ITEMS, log:LOG, audits:AUDITS };
+  const backup = { exportedAt:new Date().toISOString(), items:ITEMS, log:LOG, audits:AUDITS, categories:CATEGORIES, locations:LOCATIONS };
   forceDownload(`campus-stock-backup-${new Date().toISOString().slice(0,10)}.json`, 'application/json', JSON.stringify(backup,null,2));
 });
 document.getElementById('fileRestore').addEventListener('change',(e)=>{
@@ -1371,11 +1647,15 @@ document.getElementById('fileRestore').addEventListener('change',(e)=>{
       ITEMS = data.items;
       LOG = Array.isArray(data.log) ? data.log : [];
       AUDITS = Array.isArray(data.audits) ? data.audits : [];
+      CATEGORIES = Array.isArray(data.categories) ? data.categories : [...new Set([...DEFAULT_CATEGORIES, ...ITEMS.map(i=>i.category).filter(Boolean)])];
+      LOCATIONS = Array.isArray(data.locations) ? data.locations : [...new Set(ITEMS.map(i=>i.location).filter(Boolean))];
       CURRENT_AUDIT = AUDITS.find(a=>a.status==='in-progress') || null;
       auditScanMode = false;
       await saveItems(ITEMS);
       await saveLog(LOG);
       await saveAudits(AUDITS);
+      await saveCategories(CATEGORIES);
+      await saveLocations(LOCATIONS);
       refreshDashboard(); renderLog(); renderAudit(); renderStockAudit();
       alert('Backup restored.');
     }catch(err){
@@ -1391,6 +1671,20 @@ document.getElementById('fileRestore').addEventListener('change',(e)=>{
   ITEMS = await loadItems();
   LOG = await loadLog();
   AUDITS = await loadAudits();
+  let cats = await loadCategories();
+  if(cats===null){
+    // first run (or upgrading from before the Lists Register existed) — seed from
+    // defaults plus whatever categories/locations already appear on saved items.
+    cats = [...new Set([...DEFAULT_CATEGORIES, ...ITEMS.map(i=>i.category).filter(Boolean)])];
+    await saveCategories(cats);
+  }
+  CATEGORIES = cats;
+  let locs = await loadLocations();
+  if(locs===null){
+    locs = [...new Set(ITEMS.map(i=>i.location).filter(Boolean))];
+    await saveLocations(locs);
+  }
+  LOCATIONS = locs;
   CURRENT_AUDIT = AUDITS.find(a=>a.status==='in-progress') || null;
   OPERATOR = (await loadOperator()) || 'Staff';
   refreshOperatorLabel();
